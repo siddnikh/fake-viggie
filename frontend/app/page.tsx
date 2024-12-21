@@ -37,6 +37,7 @@ export default function Home() {
         onFormUpdate={(fields) =>
           registrationFormRef.current?.handleChatbotUpdate(fields)
         }
+        defaultOpen={true}
       />
     </>
   );

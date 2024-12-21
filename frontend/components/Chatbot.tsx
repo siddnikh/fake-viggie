@@ -16,13 +16,31 @@ interface Message {
 
 interface ChatbotProps {
   onFormUpdate: (fields: Partial<Student>) => void;
+  defaultOpen?: boolean;
 }
 
-export function Chatbot({ onFormUpdate }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function Chatbot({ onFormUpdate, defaultOpen = false }: ChatbotProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [completedFields, setCompletedFields] = useState<Set<keyof Student>>(
+    new Set()
+  );
+  const [currentField, setCurrentField] = useState<keyof Student>("firstName");
+
+  const fieldOrder: (keyof Student)[] = [
+    "firstName",
+    "lastName",
+    "email",
+    "phone",
+    "dateOfBirth",
+    "address",
+    "hasLicense",
+    "licenseNumber",
+    "preferredTransmission",
+  ];
+
   const [messages, setMessages] = useState<Message[]>([
     {
-      text: "👋 Hi! I'm DriveBot, your virtual driving assistant. Can I help you fill out the registration form?",
+      text: "👋 Hi! I'm DriveBot, your virtual driving assistant. I'll help you fill out the registration form step by step. Let's start with your first name. What's your first name?",
       isBot: true,
       timestamp: new Date(),
       status: "success",
@@ -45,15 +63,62 @@ export function Chatbot({ onFormUpdate }: ChatbotProps) {
     setIsLoading(true);
 
     try {
-      const response = await chatService.sendMessage(input);
+      // Format the conversation history
+      const previousMessages = messages
+        .slice(-5) // Last 5 messages for context
+        .map((msg) => `${msg.isBot ? "Assistant" : "User"}: ${msg.text}`)
+        .join("\n");
+
+      const context = `Current progress:
+Completed fields: ${Array.from(completedFields).join(", ")}
+Current field: ${currentField}
+
+Previous messages:
+${previousMessages}
+User: ${input}`;
+
+      const response = await chatService.sendMessage(context);
 
       // Handle form filling action if present
       if (response.action?.type === "fillForm") {
-        onFormUpdate(response.action.fields);
+        const fields = response.action.fields;
+
+        // Actually update the form with the new fields
+        onFormUpdate(fields);
+
+        // Update completed fields and move to next field
+        Object.keys(fields).forEach((field) => {
+          const typedField = field as keyof Student;
+          if (fields[typedField] !== undefined && fields[typedField] !== "") {
+            setCompletedFields((prev) => {
+              const newSet = new Set(prev);
+              newSet.add(typedField);
+              return newSet;
+            });
+
+            // Move to next field if this was the current field
+            if (typedField === currentField) {
+              const currentIndex = fieldOrder.indexOf(currentField);
+              if (currentIndex < fieldOrder.length - 1) {
+                // Skip licenseNumber if hasLicense is false
+                if (
+                  fieldOrder[currentIndex + 1] === "licenseNumber" &&
+                  fields.hasLicense === false
+                ) {
+                  setCurrentField(fieldOrder[currentIndex + 2]);
+                } else {
+                  setCurrentField(fieldOrder[currentIndex + 1]);
+                }
+              }
+            }
+          }
+        });
       }
 
+      const botMessageText = response.text.replace(/^Assistant:\s*/, "").trim();
+
       const botMessage: Message = {
-        text: response.text,
+        text: botMessageText,
         isBot: true,
         timestamp: new Date(),
         status: "success",
